@@ -26,11 +26,11 @@ def setup_bigquery_tables():
 @app.route("/log", methods=["POST"])
 def log_booking():
 
-    global setup_done
-    with setup_lock:
-        if not setup_done:
-            setup_bigquery_tables()
-            setup_done = True
+    #global setup_done
+    #with setup_lock:
+    #    if not setup_done:
+    #        setup_bigquery_tables()
+    #        setup_done = True
 
 
     data = request.get_json(force=True)
