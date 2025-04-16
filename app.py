@@ -3,9 +3,12 @@ from google.cloud import bigquery, firestore
 from google.api_core.exceptions import NotFound
 from datetime import datetime
 import os
-
+import threading
 # Initialize Flask app
 app = Flask(__name__)
+
+setup_done = False
+setup_lock = threading.Lock()
 
 # Initialize Firestore client (uses GOOGLE_CLOUD_PROJECT from env or metadata)
 bq_client = bigquery.Client()
@@ -23,6 +26,14 @@ def setup_bigquery_tables():
 
 @app.route("/log", methods=["POST"])
 def log_booking():
+
+    global setup_done
+    with setup_lock:
+        if not setup_done:
+            setup_bigquery_tables()
+            setup_done = True
+
+
     data = request.get_json(force=True)
 
     if not data:
