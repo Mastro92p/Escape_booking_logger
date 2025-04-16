@@ -18,7 +18,6 @@ BQ_DATASET = "the_escape_bookings"
 ORDERS_TABLE = f"{BQ_DATASET}.orders"
 ITEMS_TABLE = f"{BQ_DATASET}.order_items"
 
-@app.before_first_request
 def setup_bigquery_tables():
     ensure_dataset(BQ_DATASET)
     ensure_table(ORDERS_TABLE, order_schema())
