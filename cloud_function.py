@@ -1,9 +1,13 @@
 import functions_framework
-from google.cloud import bigquery
+from cloudevents.http import CloudEvent
+from google.cloud import bigquery, firestore
 from google.cloud.exceptions import NotFound
+from google.events.cloud import firestore as firestoredata
+
 
 # Initialize BigQuery client
 bq_client = bigquery.Client()
+db = firestore.Client()
 
 # Constants
 DATASET = "the_escape_bookings"  # Replace with actual dataset
@@ -67,40 +71,39 @@ def ensure_table_exists(table_name):
         bq_client.create_table(table)
 
 
-def get_order(fields):
+def get_order(data):
     return {
-        "id": int(fields["id"]["integerValue"]),
-        "transaction_number": fields["transaction_number"]["stringValue"],
-        "total": float(fields["total"]["integerValue"])
+        "id": int(data["id"]),
+        "transaction_number": data["transaction_number"],
+        "total": float(data["total"])
     }
 
 
-def get_customer(fields):
-    customer_fields = fields["customer"]["mapValue"]["fields"]
+def get_customer(data):
+    customer_fields = data["customer"]
     return {
-        "id": customer_fields["id"]["stringValue"],
-        "firstname": customer_fields["firstname"]["stringValue"],
-        "lastname": customer_fields["lastname"]["stringValue"],
-        "email_address": customer_fields["email_address"]["stringValue"],
-        "phone1": customer_fields["phone1"]["stringValue"],
-        "phone2": customer_fields.get("phone2", {}).get("stringValue", ""),
-        "newsletter": customer_fields.get("newsletter", {}).get("booleanValue", False),
+        "id": customer_fields["id"],
+        "firstname": customer_fields["firstname"],
+        "lastname": customer_fields["lastname"],
+        "email_address": customer_fields["email_address"],
+        "phone1": customer_fields["phone1"],
+        "phone2": customer_fields.get("phone2", None),
+        "newsletter": customer_fields.get("newsletter", False),
     }
 
 
-def get_items(fields, order_id):
+def get_items(data, order_id):
     items = []
-    for item in fields["items"]["arrayValue"]["values"]:
-        f = item["mapValue"]["fields"]
+    for item in data["items"]:
         items.append({
-            "i_orderitem": int(f["i_orderitem"]["integerValue"]),
-            "i_sku": int(f["i_sku"]["integerValue"]),
-            "name": f["name"]["stringValue"],
-            "event_name": f["event_name"]["stringValue"],
-            "quantity": int(f["quantity"]["integerValue"]),
-            "price": float(f["price"]["integerValue"]),
-            "slot_start": f["slot_start"]["stringValue"],
-            "slot_end": f["slot_end"]["stringValue"],
+            "i_orderitem": item["i_orderitem"],
+            "i_sku": item["i_sku"],
+            "name": item["name"],
+            "event_name": item["event_name"],
+            "quantity": item["quantity"],
+            "price": item["price"],
+            "slot_start": item["slot_start"],
+            "slot_end": item["slot_end"],
             "order_id": order_id
         })
     return items
@@ -132,12 +135,23 @@ def build_merge_customer_query(customer):
 
 
 @functions_framework.cloud_event
-def firestore_to_bigquery(event):
-    fields = event.data["value"]["fields"]
+def firestore_to_bigquery(cloud_event: CloudEvent):
+    firestore_payload = firestoredata.DocumentEventData()
+    firestore_payload._pb.ParseFromString(cloud_event.data)
 
-    order = get_order(fields)
-    customer = get_customer(fields)
-    items = get_items(fields, order["id"])
+    # Parse Firestore document path
+    path_parts = firestore_payload.value.name.split("/")
+    separator_idx = path_parts.index("documents")
+    collection_path = path_parts[separator_idx + 1]
+    document_path = "/".join(path_parts[(separator_idx + 2):])
+
+    affected_doc = db.collection(collection_path).document(document_path)
+    snapshot = affected_doc.get()
+    data = snapshot.to_dict()
+
+    order = get_order(data)
+    customer = get_customer(data)
+    items = get_items(data, order["id"])
 
     # Ensure dataset and tables exist
     ensure_dataset(DATASET)
